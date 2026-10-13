@@ -1,0 +1,37 @@
+{
+  "sdk": {
+    "url": "https://github.com/ps5-payload-dev/pacbrew-repo/releases/download/v0.41.1/ps5-payload-dev.tar.gz",
+    "version": "v0.41.1",
+    "sha256": "e811bc2e4676c5bb7f80a8fe928d2985dce599996a5ca6b54da3e72699287887"
+  },
+  "native_ui": {
+    "SDL2": "2.30.12",
+    "SDL2_revision": "ee4c47dc0d617b3bc8f35108f9956baf228a1322",
+    "SDL2_image": "2.8.2",
+    "SDL2_gfx": "1.0.2",
+    "distribution": "Bundled static libraries in the checksum-locked SDK archive"
+  },
+  "native_forks": {
+    "ps5_homebrew_ui": {
+      "url": "https://github.com/sweenyxsky-oss/ps5-homebrew-ui",
+      "commit": "333e4ee07498c552b30770acf6063003fed6833e",
+      "used": "src/core/tween.hpp"
+    },
+    "ps5_react": {
+      "url": "https://github.com/sweenyxsky-oss/ps5-react",
+      "commit": "c4ff3e1cb80bb3331b8c8ce1a5e8f07e1e44a0c5",
+      "used": "native/ps5/payloads/pkg_installer.c and relauncher.c adaptations"
+    },
+    "shadowmount_plus": {
+      "url": "https://github.com/sweenyxsky-oss/ShadowMountPlus",
+      "commit": "98c524890176c7b474fcb03387bec88c4a559861",
+      "used": "documented POST JSON API"
+    },
+    "pkg_viewer": {
+      "url": "https://github.com/sweenyxsky-oss/pkg-viewer",
+      "commit": "91b06fccd76ce43d8a512d8273d118d7d7783bed",
+      "license": "MIT (Loopayeh)",
+      "used": "CNT/FIH/LIH header, entry table, param.sfo/param.json and region rules ported to src/package_identity.cpp"
+    }
+  }
+}

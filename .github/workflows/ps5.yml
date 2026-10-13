@@ -1,0 +1,137 @@
+name: PS5 Build and Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+    paths-ignore:
+      - "**/*.md"
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-ps5-elf:
+    name: PS5 Cross-Compilation & Packaging
+    outputs:
+      archive_name: ${{ steps.package.outputs.archive_name }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Build Environment
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            autoconf \
+            automake \
+            build-essential \
+            clang-18 \
+            cmake \
+            curl \
+            git \
+            libarchive-tools \
+            libtool \
+            lld-18 \
+            llvm-18 \
+            pkg-config \
+            python3 \
+            zip
+
+      - name: Install PS5 Payload SDK
+        run: |
+          # Install official prebuilt PS5 Payload SDK with C++ runtimes (libc++, libc++abi, libunwind, stubs)
+          curl -fLsS "https://github.com/ps5-payload-dev/pacbrew-repo/releases/download/v0.41.1/ps5-payload-dev.tar.gz" -o /tmp/nexodion-sdk.tar.gz
+          echo "e811bc2e4676c5bb7f80a8fe928d2985dce599996a5ca6b54da3e72699287887  /tmp/nexodion-sdk.tar.gz" | sha256sum -c -
+          sudo tar -xzf /tmp/nexodion-sdk.tar.gz -C /
+          ls -lh /opt/ps5-payload-sdk/toolchain/prospero.cmake
+          ls -lh /opt/ps5-payload-sdk/target/lib/libc++.a
+          /opt/ps5-payload-sdk/bin/prospero-pkg-config --modversion sdl2 SDL2_image SDL2_gfx
+
+      - name: Configure CMake for PS5
+        run: |
+          cmake -B build-ps5 \
+            -DCMAKE_TOOLCHAIN_FILE=/opt/ps5-payload-sdk/toolchain/prospero.cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPS5=ON \
+            -DNEXODION_NATIVE_UI=ON
+
+      - name: Compile PS5 ELF Executable
+        run: |
+          cmake --build build-ps5 --target nexodion_elf --verbose
+
+      - name: Verify PS5 ELF Binary
+        run: |
+          ls -lh build-ps5/nexodion.elf
+          readelf -h build-ps5/nexodion.elf || true
+
+      - name: Package Release Archive
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_tag="$(git describe --abbrev=6 --dirty --always --tags 2>/dev/null || echo "${GITHUB_SHA::7}")"
+          archive_name="nexodion_${version_tag}.zip"
+
+          mkdir -p release_staging/sce_sys
+          cp build-ps5/nexodion.elf release_staging/
+          cp build-ps5/nexodion.elf release_staging/eboot.bin
+          cp build-ps5/nexodion_pkg_installer.elf build-ps5/nexodion_launcher.elf release_staging/
+          cp sce_sys/param.json release_staging/sce_sys/
+          cp sce_sys/icon0.png release_staging/sce_sys/
+          cp sce_sys/pic0.png release_staging/sce_sys/
+          cp README.md LICENSE release_staging/
+          cp NOTICE.md dependencies.lock.json release_staging/
+          mkdir -p release_staging/external
+          cp -r external/ps5-react external/ps5-homebrew-ui release_staging/external/
+
+          cd release_staging
+          zip -r -9 "../${archive_name}" .
+          cd ..
+
+          echo "archive_name=${archive_name}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Release Package & ELF Architecture
+        run: |
+          python3 tools/validate_release_package.py "${{ steps.package.outputs.archive_name }}"
+
+      - name: Upload PS5 Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.archive_name }}
+          path: ${{ steps.package.outputs.archive_name }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build-ps5-elf
+    permissions:
+      contents: write
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-ps5-elf.outputs.archive_name }}
+          path: dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: dist/${{ needs.build-ps5-elf.outputs.archive_name }}

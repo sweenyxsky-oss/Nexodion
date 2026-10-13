@@ -1,0 +1,2 @@
+- Every user-facing failure goes through show_recovery_guidance/record_event into EventLog (JSON lines, rotated under /data/nexodion/logs); one place keeps messages consistent and exportable.
+- Pre-install readiness (readable, space, existing version) runs inside NativePackageDelegate before the relay; nothing is sent to the console when a blocking check fails.
