@@ -120,18 +120,65 @@ jobs:
     needs: build-ps5-elf
     permissions:
       contents: write
-    if: startsWith(github.ref, 'refs/tags/')
+    # Every successful PS5 build on main or a v* tag becomes a downloadable release.
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download Build Artifact
         uses: actions/download-artifact@v4
         with:
           name: ${{ needs.build-ps5-elf.outputs.archive_name }}
           path: dist
 
+      - name: Determine Version and Write Notes
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="$(sed -nE 's/^project\(nexodion VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)"
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF_NAME}"; prerelease=false
+          else
+            tag="v${base}-build.${GITHUB_RUN_NUMBER}"; prerelease=true
+          fi
+          prev="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          sha_zip="$(sha256sum "dist/${{ needs.build-ps5-elf.outputs.archive_name }}" | cut -d' ' -f1)"
+          {
+            echo "## Nexodion ${tag}"
+            echo
+            echo "PS5 build from commit ${GITHUB_SHA::7} (app version ${base})."
+            echo
+            if [ -f CHANGELOG.md ]; then
+              awk -v v="## ${base}" '$0==v{f=1;next} /^## /{if(f)exit} f' CHANGELOG.md
+              echo
+            fi
+            echo "### Changes"
+            if [ -n "$prev" ]; then
+              git log --no-merges --pretty='- %s (%h)' "${prev}..HEAD" | head -100
+            else
+              git log --no-merges --pretty='- %s (%h)' -n 50
+            fi
+            echo
+            echo "### Install"
+            echo "Copy the zip contents to your PS5 and start eboot.bin with your ELF loader."
+            echo
+            echo "SHA-256: \`${sha_zip}\`"
+          } > release_notes.md
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: Nexodion ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          body_path: release_notes.md
+          prerelease: ${{ steps.meta.outputs.prerelease }}
           files: dist/${{ needs.build-ps5-elf.outputs.archive_name }}
+          fail_on_unmatched_files: true
